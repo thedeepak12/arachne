@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/thedeepak12/arachne/internal/config"
 	"github.com/thedeepak12/arachne/internal/fetcher"
+	"github.com/thedeepak12/arachne/internal/parser"
 )
 
 func main() {
@@ -28,4 +29,10 @@ func main() {
 	}
 
 	fmt.Printf("Successfully fetched %d bytes\n", len(body))
+
+	links := parser.Parse(body, cfg.URL)
+	fmt.Printf("Found %d links:\n", len(links))
+	for _, link := range links {
+		fmt.Printf(" - %s\n", link)
+	}
 }
