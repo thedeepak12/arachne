@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/thedeepak12/arachne/internal/config"
-	"github.com/thedeepak12/arachne/internal/fetcher"
-	"github.com/thedeepak12/arachne/internal/parser"
+	"github.com/thedeepak12/arachne/internal/crawler"
 )
 
 func main() {
@@ -21,18 +21,8 @@ func main() {
 		return
 	}
 
-	f := fetcher.New(cfg.Timeout)
-	body, err := f.Fetch(cfg.URL)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
+	c := crawler.New(cfg.Timeout)
+	c.Crawl(cfg.URL)
 
-	fmt.Printf("Successfully fetched %d bytes\n", len(body))
-
-	links := parser.Parse(body, cfg.URL)
-	fmt.Printf("Found %d links:\n", len(links))
-	for _, link := range links {
-		fmt.Printf(" - %s\n", link)
-	}
+	fmt.Println("Crawling complete")
 }
