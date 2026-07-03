@@ -5,37 +5,37 @@ import (
 )
 
 type Queue struct {
-	urls []string
+	tasks []*Task
 	mu   sync.Mutex
 }
 
 func NewQueue() *Queue {
 	return &Queue{
-		urls: make([]string, 0),
+		tasks: make([]*Task, 0),
 	}
 }
 
-func (q *Queue) Push(url string) {
+func (q *Queue) Push(task *Task) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.urls = append(q.urls, url)
+	q.tasks = append(q.tasks, task)
 }
 
-func (q *Queue) Pop() string {
+func (q *Queue) Pop() *Task {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if len(q.urls) == 0 {
-		return ""
+	if len(q.tasks) == 0 {
+		return nil
 	}
 
-	url := q.urls[0]
-	q.urls = q.urls[1:]
-	return url
+	task := q.tasks[0]
+	q.tasks = q.tasks[1:]
+	return task
 }
 
 func (q *Queue) IsEmpty() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return len(q.urls) == 0
+	return len(q.tasks) == 0
 }

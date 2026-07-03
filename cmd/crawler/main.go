@@ -21,7 +21,7 @@ func main() {
 		return
 	}
 
-	c := crawler.New(cfg.Timeout)
+	c := crawler.New(cfg.Timeout, cfg.Depth)
 	c.Crawl(cfg.URL)
 
 	fmt.Println("Crawling complete")

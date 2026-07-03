@@ -11,46 +11,52 @@ type Crawler struct {
 	fetcher *fetcher.Fetcher
 	queue   *frontier.Queue
 	visited *frontier.Visited
+	maxDepth int
 }
 
-func New(timeout int) *Crawler {
+func New(timeout int, maxDepth int) *Crawler {
 	return &Crawler{
 		fetcher: fetcher.New(timeout),
 		queue:   frontier.NewQueue(),
 		visited: frontier.NewVisited(),
+		maxDepth: maxDepth,
 	}
 }
 
 func (c *Crawler) Crawl(seedURL string) {
-	c.queue.Push(seedURL)
+	seedTask := &frontier.Task{
+		URL: seedURL,
+		Depth: 0,
+	}
+
+	c.queue.Push(seedTask)
 	c.visited.Add(seedURL)
 
-	count := 0
 	for !c.queue.IsEmpty() {
-		url := c.queue.Pop()
+		task := c.queue.Pop()
 
-		fmt.Printf("Crawling: %s\n", url)
+		fmt.Printf("Crawling: %s (depth: %d)\n", task.URL, task.Depth)
 
-		body, err := c.fetcher.Fetch(url)
+		body, err := c.fetcher.Fetch(task.URL)
 		if err != nil {
-			fmt.Printf("Error fetching %s: %v\n", url, err)
+			fmt.Printf("Error fetching %s: %v\n", task.URL, err)
 			continue
 		}
 
-		links := parser.Parse(body, url)
+		links := parser.Parse(body, task.URL)
 		fmt.Printf("Found %d links\n", len(links))
 
-		for _, link := range links {
-			if !c.visited.Contains(link) {
-				c.visited.Add(link)
-				c.queue.Push(link)
+		if task.Depth < c.maxDepth {
+			for _, link := range links {
+				if !c.visited.Contains(link) {
+					c.visited.Add(link)
+					newTask := &frontier.Task{
+						URL: link,
+						Depth: task.Depth + 1,
+					}
+					c.queue.Push(newTask)
+				}
 			}
-		}
-
-		count++
-		if count >= 100 {
-			fmt.Println("Reached test limit of 100 pages")
-			break
 		}
 	}
 }
