@@ -1,7 +1,12 @@
 package crawler
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/thedeepak12/arachne/internal/fetcher"
@@ -31,6 +36,17 @@ func New(timeout int, maxDepth int, numWorkers int) *Crawler {
 }
 
 func (c *Crawler) Crawl(seedURL string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+	go func() {
+		<-sigChan
+		fmt.Println("\n\nReceived interrupt signal, shutting down...")
+		cancel()
+	}()
+
 	taskChan := make(chan *frontier.Task, 100)
 
 	workers := make([]*Worker, c.numWorkers)
@@ -48,26 +64,32 @@ func (c *Crawler) Crawl(seedURL string) {
 	go func() {
 		emptyCount := 0
 		for {
-			task := c.queue.Pop()
-			if task != nil {
-				emptyCount = 0
-				c.tasksProcessed++
-				if c.tasksProcessed >= c.totalLimit {
-					break
+			select {
+			case <-ctx.Done():
+				close(taskChan)
+				return
+			default:
+				task := c.queue.Pop()
+				if task != nil {
+					emptyCount = 0
+					c.tasksProcessed++
+					if c.tasksProcessed >= c.totalLimit {
+						break
+					}
+					mu.Lock()
+					activeWorkers++
+					mu.Unlock()
+					taskChan <- task
+				} else {
+					emptyCount++
+					mu.Lock()
+					noActive := activeWorkers == 0
+					mu.Unlock()
+					if emptyCount > 10 && noActive {
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
 				}
-				mu.Lock()
-				activeWorkers++
-				mu.Unlock()
-				taskChan <- task
-			} else {
-				emptyCount++
-				mu.Lock()
-				noActive := activeWorkers == 0
-				mu.Unlock()
-				if emptyCount > 10 && noActive {
-					break
-				}
-				time.Sleep(50 * time.Millisecond)
 			}
 		}
 		close(taskChan)
@@ -78,11 +100,19 @@ func (c *Crawler) Crawl(seedURL string) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for task := range taskChan {
-				workers[workerID].processTask(task)
-				mu.Lock()
-				activeWorkers--
-				mu.Unlock()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case task, ok := <-taskChan:
+					if !ok {
+						return
+					}
+					workers[workerID].processTask(ctx, task)
+					mu.Lock()
+					activeWorkers--
+					mu.Unlock()
+				}
 			}
 		}(i)
 	}

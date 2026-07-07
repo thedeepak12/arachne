@@ -1,7 +1,9 @@
 package crawler
 
 import (
+	"context"
 	"fmt"
+
 	"github.com/thedeepak12/arachne/internal/fetcher"
 	"github.com/thedeepak12/arachne/internal/frontier"
 	"github.com/thedeepak12/arachne/internal/parser"
@@ -25,13 +27,19 @@ func NewWorker(id int, fetcher *fetcher.Fetcher, queue *frontier.Queue, visited 
 	}
 }
 
-func (w *Worker) Run(taskChan chan *frontier.Task) {
+func (w *Worker) Run(ctx context.Context, taskChan chan *frontier.Task) {
 	for task := range taskChan {
-		w.processTask(task)
+		w.processTask(ctx, task)
 	}
 }
 
-func (w *Worker) processTask(task *frontier.Task) {
+func (w *Worker) processTask(ctx context.Context, task *frontier.Task) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	fmt.Printf("[worker-%d] Crawling: %s (depth: %d)\n", w.id, task.URL, task.Depth)
 
 	body, err := w.fetcher.Fetch(task.URL)
@@ -40,17 +48,25 @@ func (w *Worker) processTask(task *frontier.Task) {
 		return
 	}
 
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	links := parser.Parse(body, task.URL)
 	fmt.Printf("[worker-%d] Found %d links\n", w.id, len(links))
 
 	if task.Depth < w.maxDepth {
 		for _, link := range links {
-			if !w.visited.Contains(link) {
-				w.visited.Add(link)
-				w.queue.Push(&frontier.Task{
-					URL:   link,
-					Depth: task.Depth + 1,
-				})
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if !w.visited.Contains(link) {
+					w.visited.Add(link)
+					w.queue.Push(&frontier.Task{URL: link, Depth: task.Depth + 1})
+				}
 			}
 		}
 	}
