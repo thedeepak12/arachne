@@ -21,6 +21,7 @@ type Crawler struct {
 	numWorkers     int
 	totalLimit     int
 	tasksProcessed int
+	stats          *Stats
 }
 
 func New(timeout int, maxDepth int, numWorkers int) *Crawler {
@@ -32,6 +33,7 @@ func New(timeout int, maxDepth int, numWorkers int) *Crawler {
 		numWorkers:     numWorkers,
 		totalLimit:     1000,
 		tasksProcessed: 0,
+		stats:          NewStats(),
 	}
 }
 
@@ -47,19 +49,23 @@ func (c *Crawler) Crawl(seedURL string) {
 		cancel()
 	}()
 
+	defer func() {
+		fmt.Println(c.stats.String())
+	}()
+
 	taskChan := make(chan *frontier.Task, 100)
 
 	workers := make([]*Worker, c.numWorkers)
 	for i := 0; i < c.numWorkers; i++ {
-		workers[i] = NewWorker(i, c.fetcher, c.queue, c.visited, c.maxDepth)
+		workers[i] = NewWorker(i, c.fetcher, c.queue, c.visited, c.maxDepth, c.stats)
 	}
 
 	seedTask := &frontier.Task{URL: seedURL, Depth: 0}
 	c.queue.Push(seedTask)
 	c.visited.Add(seedURL)
 
-	var activeWorkers int
-	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var tasksInFlight sync.WaitGroup
 
 	go func() {
 		emptyCount := 0
@@ -74,28 +80,28 @@ func (c *Crawler) Crawl(seedURL string) {
 					emptyCount = 0
 					c.tasksProcessed++
 					if c.tasksProcessed >= c.totalLimit {
-						break
+						close(taskChan)
+						return
 					}
-					mu.Lock()
-					activeWorkers++
-					mu.Unlock()
+					tasksInFlight.Add(1)
 					taskChan <- task
 				} else {
-					emptyCount++
-					mu.Lock()
-					noActive := activeWorkers == 0
-					mu.Unlock()
-					if emptyCount > 10 && noActive {
-						break
+					tasksInFlight.Wait()
+					if c.queue.IsEmpty() {
+						emptyCount++
+						if emptyCount >= 50 {
+							close(taskChan)
+							return
+						}
+						time.Sleep(100 * time.Millisecond)
+					} else {
+						emptyCount = 0
 					}
-					time.Sleep(50 * time.Millisecond)
 				}
 			}
 		}
-		close(taskChan)
 	}()
 
-	var wg sync.WaitGroup
 	for i := 0; i < c.numWorkers; i++ {
 		wg.Add(1)
 		go func(workerID int) {
@@ -109,9 +115,7 @@ func (c *Crawler) Crawl(seedURL string) {
 						return
 					}
 					workers[workerID].processTask(ctx, task)
-					mu.Lock()
-					activeWorkers--
-					mu.Unlock()
+					tasksInFlight.Done()
 				}
 			}
 		}(i)
